@@ -31,9 +31,9 @@ var (
 			Margin(1, 0)
 
 	modalTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#00D9FF")).
-				Bold(true).
-				MarginBottom(1)
+			Foreground(lipgloss.Color("#00D9FF")).
+			Bold(true).
+			MarginBottom(1)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262"))
@@ -45,10 +45,10 @@ var (
 			PaddingLeft(1)
 
 	emptyStateStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#626262")).
-				Italic(true).
-				Align(lipgloss.Center).
-				MarginTop(2)
+			Foreground(lipgloss.Color("#626262")).
+			Italic(true).
+			Align(lipgloss.Center).
+			MarginTop(2)
 
 	errorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF5555")).
@@ -58,7 +58,6 @@ var (
 			Foreground(lipgloss.Color("#FFB86C")).
 			Bold(true)
 )
-
 
 func NewApp() *AppModel {
 	ti := textinput.New()
@@ -75,7 +74,7 @@ func NewApp() *AppModel {
 	return &AppModel{
 		state:         StateNormal,
 		searchInput:   ti,
-		results:     vp,
+		results:       vp,
 		searchResults: []yt.SearchResult{},
 		selected:      0,
 	}
@@ -144,6 +143,10 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selected < len(m.searchResults)-1 {
 			m.selected++
 			m.updateResultsViewport()
+		}
+	case "enter":
+		if len(m.searchResults) > 0 {
+			m.selectedItem = &m.searchResults[m.selected]
 		}
 	}
 	return m, nil
@@ -257,10 +260,26 @@ func (m *AppModel) View() string {
 		Render(leftContent)
 
 	rightTitle := titleStyle.Render("Player")
+	var rightContent string
+	if m.selectedItem != nil {
+		rightContent = fmt.Sprintf(
+			"%s\n\nChannel: %s\n\nVideo ID: %s\n\nDescription: %s\n\nDuration: %s\n\nThumbnail URL: %s\n\nURL: %s",
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00D9FF")).Render(m.selectedItem.Title),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Italic(true).Render(m.selectedItem.ChannelTitle),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.VideoID),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.Description),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.Duration),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.ThumbnailURL),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.URL),
+		)
+	} else {
+		rightContent = emptyStateStyle.Render("No video selected")
+	}
+
 	rightPanel := rightPanelStyle.
 		Width(rightWidth).
 		Height(panelHeight).
-		Render(rightTitle)
+		Render(rightTitle + "\n" + rightContent)
 
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 

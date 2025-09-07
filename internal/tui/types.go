@@ -23,6 +23,7 @@ type AppModel struct {
 	results       viewport.Model
 	searchResults []yt.SearchResult
 	selected      int
+	selectedItem *yt.SearchResult
 	width, height int
 	err           error
 }
