@@ -15,7 +15,6 @@ var (
 	safeSearch    string
 	videoDuration string
 	videoType     string
-	outputFormat  string
 )
 
 // searchCmd represents the search command

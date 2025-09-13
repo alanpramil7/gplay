@@ -2,7 +2,7 @@ package tui
 
 import (
 	"github.com/alanpramil7/gplay/internal/yt"
-	// "github.com/charmbracelet/bubbles/list"
+	"github.com/alanpramil7/gplay/internal/yt/services"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 )
@@ -26,6 +26,8 @@ type AppModel struct {
 	selectedItem *yt.SearchResult
 	width, height int
 	err           error
+
+	AudioService  *services.AudioService
 }
 
 // Custom messages for async operations

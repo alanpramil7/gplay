@@ -71,12 +71,16 @@ func NewApp() *AppModel {
 	vp := viewport.New(0, 0)
 	vp.MouseWheelEnabled = true
 
+	audioService := services.NewAudioService()
+
 	return &AppModel{
 		state:         StateNormal,
 		searchInput:   ti,
 		results:       vp,
 		searchResults: []yt.SearchResult{},
 		selected:      0,
+
+		AudioService: audioService,
 	}
 }
 
@@ -128,6 +132,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
+		// Stop audio before quitting
+		m.AudioService.Stop()
 		return m, tea.Quit
 	case "/", "s":
 		m.state = StateSearchInput
@@ -145,9 +151,40 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateResultsViewport()
 		}
 	case "enter":
-		if len(m.searchResults) > 0 {
+		if len(m.searchResults) > 0 && m.selected >= 0 && m.selected < len(m.searchResults) {
 			m.selectedItem = &m.searchResults[m.selected]
+			err := m.AudioService.PlayStream(m.selectedItem.URL)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
 		}
+
+	case " ":
+		if m.AudioService.IsPlaying() {
+			m.AudioService.Pause()
+		} else {
+			if m.selectedItem != nil {
+				if m.AudioService.GetCurrentSong() == m.selectedItem.URL {
+					m.AudioService.Play()
+				} else {
+					err := m.AudioService.PlayStream(m.selectedItem.URL)
+					if err != nil {
+						m.err = err
+						return m, nil
+					}
+				}
+			} else if len(m.searchResults) > 0 && m.selected >= 0 && m.selected < len(m.searchResults) {
+				m.selectedItem = &m.searchResults[m.selected]
+				err := m.AudioService.PlayStream(m.selectedItem.URL)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+			}
+		}
+	case "x":
+		m.AudioService.Stop()
 	}
 	return m, nil
 }
@@ -190,7 +227,7 @@ func (m *AppModel) performSearch(query string) tea.Cmd {
 		if err != nil {
 			return searchErrorMsg(fmt.Errorf("failed to create YouTube client: %w", err))
 		}
-		service := services.NewSearchService(client, 30)
+		service := services.NewSearchService(client, 10)
 		results, err := service.Search(query)
 		if err != nil {
 			return searchErrorMsg(fmt.Errorf("search failed: %w", err))
@@ -241,6 +278,7 @@ func (m *AppModel) View() string {
 	rightWidth := m.width - leftWidth - 4
 	panelHeight := m.height - 4
 
+	// Left panel code remains the same...
 	leftContent := ""
 	if len(m.searchResults) == 0 {
 		emptyMsg := `
@@ -259,21 +297,37 @@ func (m *AppModel) View() string {
 		Height(panelHeight).
 		Render(leftContent)
 
+	// Updated right panel with playback status
 	rightTitle := titleStyle.Render("Player")
 	var rightContent string
+
+	// Show playback status
+	var statusLine string
+	if m.AudioService.IsPlaying() {
+		statusLine = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#50FA7B")).
+			Bold(true).
+			Render("▶ NOW PLAYING")
+	} else {
+		statusLine = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4")).
+			Render("⏸ STOPPED")
+	}
+
 	if m.selectedItem != nil {
 		rightContent = fmt.Sprintf(
-			"%s\n\nChannel: %s\n\nVideo ID: %s\n\nDescription: %s\n\nDuration: %s\n\nThumbnail URL: %s\n\nURL: %s",
+			"%s\n\n%s\n\nChannel: %s\n\nVideo ID: %s\n\nDescription: %s\n\nDuration: %s\n\nThumbnail URL: %s\n\nURL: %s",
+			statusLine,
 			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00D9FF")).Render(m.selectedItem.Title),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Italic(true).Render(m.selectedItem.ChannelTitle),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.VideoID),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.Description),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(truncate(m.selectedItem.Description, 100)),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.Duration),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.ThumbnailURL),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.URL),
 		)
 	} else {
-		rightContent = emptyStateStyle.Render("No video selected")
+		rightContent = statusLine + "\n\n" + emptyStateStyle.Render("No video selected")
 	}
 
 	rightPanel := rightPanelStyle.
@@ -283,11 +337,12 @@ func (m *AppModel) View() string {
 
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
+	// Updated help text
 	helpText := ""
 	switch m.state {
 	case StateNormal:
 		if len(m.searchResults) > 0 {
-			helpText = "'/' search  •  ↑↓ navigate  •  ↵ select  •  q quit"
+			helpText = "'/' search  •  ↑↓ navigate  •  ↵ play  •  space toggle  •  x stop  •  q quit"
 		} else {
 			helpText = "Press '/' or 's' to search  •  Press 'q' to quit"
 		}
@@ -300,6 +355,7 @@ func (m *AppModel) View() string {
 	}
 	help := helpStyle.Render(helpText)
 
+	// Modal code remains the same...
 	if m.state == StateSearchInput {
 		title := modalTitleStyle.Render("Search YouTube")
 		input := m.searchInput.View()
