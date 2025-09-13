@@ -19,15 +19,18 @@ const (
 // AppModel represents the app state
 type AppModel struct {
 	state         AppState
+	client        *yt.Client
 	searchInput   textinput.Model
 	results       viewport.Model
 	searchResults []yt.SearchResult
 	selected      int
-	selectedItem *yt.SearchResult
+	selectedItem  *yt.SearchResult
+	isLoadingSong bool
 	width, height int
 	err           error
 
-	AudioService  *services.AudioService
+	AudioService    *services.AudioService
+	PlaylistService *services.PlaylistService
 }
 
 // Custom messages for async operations

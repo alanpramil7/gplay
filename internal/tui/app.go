@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/alanpramil7/gplay/internal/yt"
@@ -71,16 +72,31 @@ func NewApp() *AppModel {
 	vp := viewport.New(0, 0)
 	vp.MouseWheelEnabled = true
 
+	client, err := yt.NewClient()
+	if err != nil {
+		log.Fatalf("Error creating new youtube client: %v", err)
+	}
 	audioService := services.NewAudioService()
+	playlistService := services.NewPlaylistService(client)
+
+	initialResults, err:= playlistService.GetPlaylistItems("PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp", 100)
+	if err != nil {
+		log.Fatalf("Error getting inital results from playlist: %v", err)
+	}
+
+	// Get initial songs from the playlist PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp
 
 	return &AppModel{
 		state:         StateNormal,
+		client:        client,
 		searchInput:   ti,
 		results:       vp,
-		searchResults: []yt.SearchResult{},
+		searchResults: initialResults,
 		selected:      0,
+		isLoadingSong: false,
 
 		AudioService: audioService,
+		PlaylistService: &playlistService,
 	}
 }
 
@@ -121,6 +137,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateNormal
 		m.err = msg
 
+	case songLoadCompleteMsg:
+		m.isLoadingSong = false
+
+	case songLoadErrorMsg:
+		m.isLoadingSong = false
+		m.err = msg.error
+
 	default:
 		var cmd tea.Cmd
 		m.results, cmd = m.results.Update(msg)
@@ -153,11 +176,8 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.searchResults) > 0 && m.selected >= 0 && m.selected < len(m.searchResults) {
 			m.selectedItem = &m.searchResults[m.selected]
-			err := m.AudioService.PlayStream(m.selectedItem.URL)
-			if err != nil {
-				m.err = err
-				return m, nil
-			}
+			m.isLoadingSong = true
+			return m, m.playSelectedSong()
 		}
 
 	case " ":
@@ -168,19 +188,13 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if m.AudioService.GetCurrentSong() == m.selectedItem.URL {
 					m.AudioService.Play()
 				} else {
-					err := m.AudioService.PlayStream(m.selectedItem.URL)
-					if err != nil {
-						m.err = err
-						return m, nil
-					}
+					m.isLoadingSong = true
+					return m, m.playSelectedSong()
 				}
 			} else if len(m.searchResults) > 0 && m.selected >= 0 && m.selected < len(m.searchResults) {
 				m.selectedItem = &m.searchResults[m.selected]
-				err := m.AudioService.PlayStream(m.selectedItem.URL)
-				if err != nil {
-					m.err = err
-					return m, nil
-				}
+				m.isLoadingSong = true
+				return m, m.playSelectedSong()
 			}
 		}
 	case "x":
@@ -221,13 +235,29 @@ func (m *AppModel) handleLoadingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+type songLoadCompleteMsg struct{}
+type songLoadErrorMsg struct {
+	error error
+}
+
+func (m *AppModel) playSelectedSong() tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedItem == nil {
+			return songLoadErrorMsg{fmt.Errorf("no song selected")}
+		}
+
+		err := m.AudioService.PlayStream(m.selectedItem.URL)
+		if err != nil {
+			return songLoadErrorMsg{err}
+		}
+
+		return songLoadCompleteMsg{}
+	}
+}
+
 func (m *AppModel) performSearch(query string) tea.Cmd {
 	return func() tea.Msg {
-		client, err := yt.NewClient()
-		if err != nil {
-			return searchErrorMsg(fmt.Errorf("failed to create YouTube client: %w", err))
-		}
-		service := services.NewSearchService(client, 10)
+		service := services.NewSearchService(m.client, 10)
 		results, err := service.Search(query)
 		if err != nil {
 			return searchErrorMsg(fmt.Errorf("search failed: %w", err))
@@ -278,7 +308,6 @@ func (m *AppModel) View() string {
 	rightWidth := m.width - leftWidth - 4
 	panelHeight := m.height - 4
 
-	// Left panel code remains the same...
 	leftContent := ""
 	if len(m.searchResults) == 0 {
 		emptyMsg := `
@@ -297,21 +326,30 @@ func (m *AppModel) View() string {
 		Height(panelHeight).
 		Render(leftContent)
 
-	// Updated right panel with playback status
 	rightTitle := titleStyle.Render("Player")
 	var rightContent string
 
-	// Show playback status
 	var statusLine string
-	if m.AudioService.IsPlaying() {
+	if m.isLoadingSong {
+		statusLine = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFB86C")).
+			Bold(true).
+			Render("⏳ LOADING...")
+	} else if m.AudioService.IsPlaying() {
 		statusLine = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#50FA7B")).
 			Bold(true).
 			Render("▶ NOW PLAYING")
+	} else if m.selectedItem != nil && m.AudioService.GetCurrentSong() == m.selectedItem.URL {
+		// Song is loaded but paused
+		statusLine = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F1FA8C")).
+			Bold(true).
+			Render("⏸ PAUSED")
 	} else {
 		statusLine = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6272A4")).
-			Render("⏸ STOPPED")
+			Render("⏹ STOPPED")
 	}
 
 	if m.selectedItem != nil {
@@ -337,25 +375,33 @@ func (m *AppModel) View() string {
 
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Updated help text
+	// Updated help text with consistent loading states
 	helpText := ""
 	switch m.state {
 	case StateNormal:
-		if len(m.searchResults) > 0 {
-			helpText = "'/' search  •  ↑↓ navigate  •  ↵ play  •  space toggle  •  x stop  •  q quit"
+		if m.isLoadingSong {
+			helpText = loadingStyle.Render("Loading song...")
+		} else if len(m.searchResults) > 0 {
+			if m.AudioService.IsPlaying() {
+				helpText = "'/' search  •  ↑↓ navigate  •  ↵ play  •  space pause  •  x stop  •  q quit"
+			} else if m.selectedItem != nil && m.AudioService.GetCurrentSong() == m.selectedItem.URL {
+				helpText = "'/' search  •  ↑↓ navigate  •  ↵ play  •  space resume  •  x stop  •  q quit"
+			} else {
+				helpText = "'/' search  •  ↑↓ navigate  •  ↵ play  •  space toggle  •  x stop  •  q quit"
+			}
 		} else {
 			helpText = "Press '/' or 's' to search  •  Press 'q' to quit"
 		}
 	case StateLoading:
 		helpText = loadingStyle.Render("Searching YouTube...")
 	}
+
 	if m.err != nil {
 		helpText = errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
 		m.err = nil
 	}
 	help := helpStyle.Render(helpText)
 
-	// Modal code remains the same...
 	if m.state == StateSearchInput {
 		title := modalTitleStyle.Render("Search YouTube")
 		input := m.searchInput.View()
