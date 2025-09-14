@@ -7,18 +7,18 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
-// AppState represents the current state of the application
-type AppState int
+// State represents the current state of the application
+type State int
 
 const (
-	StateNormal AppState = iota
+	StateNormal State = iota
 	StateSearchInput
 	StateLoading
 )
 
-// AppModel represents the app state
-type AppModel struct {
-	state         AppState
+// Model represents the TUI application state
+type Model struct {
+	state         State
 	client        *yt.Client
 	searchInput   textinput.Model
 	results       viewport.Model
@@ -47,3 +47,6 @@ type ListItem struct {
 func (i ListItem) Title() string       { return i.result.Title }
 func (i ListItem) Description() string { return i.result.ChannelTitle }
 func (i ListItem) FilterValue() string { return i.result.Title }
+
+// AppModel is an alias for Model for backward compatibility
+type AppModel = Model

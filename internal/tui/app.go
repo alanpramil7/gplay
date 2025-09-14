@@ -13,84 +13,110 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	defaultPlaylistID = "PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp"
+	defaultMaxResults = int64(100)
+	searchCharLimit   = 100
+	searchWidth       = 50
+)
+
+// UI color constants
+const (
+	colorPrimary   = "#00D9FF"
+	colorSecondary = "#BD93F9"
+	colorText      = "#F8F8F2"
+	colorMuted     = "#6272A4"
+	colorBorder    = "#3C3C3C"
+	colorError     = "#FF5555"
+	colorWarning   = "#FFB86C"
+	colorSuccess   = "#50FA7B"
+	colorPaused    = "#F1FA8C"
+	colorHelp      = "#626262"
+)
+
 // Styles for the UI with modern transparent design
 var (
 	leftPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#3C3C3C")).
+			BorderForeground(lipgloss.Color(colorBorder)).
 			Padding(0, 1)
 
 	rightPanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#3C3C3C")).
+			BorderForeground(lipgloss.Color(colorBorder)).
 			Padding(0, 1)
 
 	modalStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#00D9FF")).
+			BorderForeground(lipgloss.Color(colorPrimary)).
 			Padding(1, 3).
 			Margin(1, 0)
 
 	modalTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00D9FF")).
+			Foreground(lipgloss.Color(colorPrimary)).
 			Bold(true).
 			MarginBottom(1)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262"))
+			Foreground(lipgloss.Color(colorHelp))
 
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00D9FF")).
+			Foreground(lipgloss.Color(colorPrimary)).
 			Bold(true).
 			MarginBottom(1).
 			PaddingLeft(1)
 
 	emptyStateStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
+			Foreground(lipgloss.Color(colorHelp)).
 			Italic(true).
 			Align(lipgloss.Center).
 			MarginTop(2)
 
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF5555")).
+			Foreground(lipgloss.Color(colorError)).
 			Bold(true)
 
 	loadingStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFB86C")).
+			Foreground(lipgloss.Color(colorWarning)).
 			Bold(true)
 )
 
+// NewApp creates a new TUI application instance
 func NewApp() *AppModel {
-	ti := textinput.New()
-	ti.Placeholder = "Enter search query..."
-	ti.Focus()
-	ti.CharLimit = 100
-	ti.Width = 50
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF"))
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2"))
+	// Initialize text input
+	searchInput := textinput.New()
+	searchInput.Placeholder = "Enter search query..."
+	searchInput.Focus()
+	searchInput.CharLimit = searchCharLimit
+	searchInput.Width = searchWidth
+	searchInput.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary))
+	searchInput.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorText))
 
-	vp := viewport.New(0, 0)
-	vp.MouseWheelEnabled = true
+	// Initialize viewport
+	resultsViewport := viewport.New(0, 0)
+	resultsViewport.MouseWheelEnabled = true
 
+	// Initialize YouTube client
 	client, err := yt.NewClient()
 	if err != nil {
-		log.Fatalf("Error creating new youtube client: %v", err)
+		log.Fatalf("Failed to create YouTube client: %v", err)
 	}
+
+	// Initialize services
 	audioService := services.NewAudioService()
 	playlistService := services.NewPlaylistService(client)
 
-	initialResults, err := playlistService.GetPlaylistItems("PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp", 100)
+	// Load initial playlist
+	initialResults, err := playlistService.GetPlaylistItems(defaultPlaylistID, defaultMaxResults)
 	if err != nil {
-		log.Fatalf("Error getting inital results from playlist: %v", err)
+		log.Fatalf("Failed to load initial playlist: %v", err)
 	}
-
-	// Get initial songs from the playlist PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp
 
 	app := &AppModel{
 		state:         StateNormal,
 		client:        client,
-		searchInput:   ti,
-		results:       vp,
+		searchInput:   searchInput,
+		results:       resultsViewport,
 		searchResults: initialResults,
 		selected:      0,
 		isLoadingSong: false,
@@ -99,7 +125,7 @@ func NewApp() *AppModel {
 		PlaylistService: &playlistService,
 	}
 
-	// Set up the completion callback (not used anymore, but keeping for compatibility)
+	// Set up completion callback (kept for compatibility)
 	audioService.SetOnComplete(func() {
 		// This will be called when a song completes naturally
 		// We'll handle this in the Update method
@@ -115,10 +141,8 @@ func (m *AppModel) Init() tea.Cmd {
 // listenForSongCompletion returns a command that listens for song completion
 func (m *AppModel) listenForSongCompletion() tea.Cmd {
 	return func() tea.Msg {
-		select {
-		case <-m.AudioService.GetSongCompleteChannel():
-			return songCompleteMsg{}
-		}
+		<-m.AudioService.GetSongCompleteChannel()
+		return songCompleteMsg{}
 	}
 }
 
@@ -147,7 +171,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case searchCompleteMsg:
 		m.state = StateNormal
-		m.searchResults = msg.Results
+		m.searchResults = msg.Videos
 		m.selected = 0
 		m.updateResultsViewport()
 
@@ -302,16 +326,16 @@ func (m *AppModel) updateResultsViewport() {
 	var b strings.Builder
 	for i, r := range m.searchResults {
 		if i == m.selected {
-			indicator := lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF")).Render("▶ ")
-			title := lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF")).Bold(true).
+			indicator := lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary)).Render("▶ ")
+			title := lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary)).Bold(true).
 				Render(truncate(r.Title, 40))
-			channel := lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Italic(true).
+			channel := lipgloss.NewStyle().Foreground(lipgloss.Color(colorSecondary)).Italic(true).
 				Render(r.ChannelTitle)
 			fmt.Fprintf(&b, "%s%s\n  %s\n", indicator, title, channel)
 		} else {
-			title := lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2")).
+			title := lipgloss.NewStyle().Foreground(lipgloss.Color(colorText)).
 				Render(truncate(r.Title, 40))
-			channel := lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).
+			channel := lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).
 				Render(r.ChannelTitle)
 			fmt.Fprintf(&b, "  %s\n  %s\n", title, channel)
 		}
@@ -364,23 +388,23 @@ func (m *AppModel) View() string {
 	var statusLine string
 	if m.isLoadingSong {
 		statusLine = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFB86C")).
+			Foreground(lipgloss.Color(colorWarning)).
 			Bold(true).
 			Render("⏳ LOADING...")
 	} else if m.AudioService.IsPlaying() {
 		statusLine = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#50FA7B")).
+			Foreground(lipgloss.Color(colorSuccess)).
 			Bold(true).
 			Render("▶ NOW PLAYING")
 	} else if m.selectedItem != nil && m.AudioService.GetCurrentSong() == m.selectedItem.URL {
 		// Song is loaded but paused
 		statusLine = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F1FA8C")).
+			Foreground(lipgloss.Color(colorPaused)).
 			Bold(true).
 			Render("⏸ PAUSED")
 	} else {
 		statusLine = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6272A4")).
+			Foreground(lipgloss.Color(colorMuted)).
 			Render("⏹ STOPPED")
 	}
 
@@ -388,13 +412,13 @@ func (m *AppModel) View() string {
 		rightContent = fmt.Sprintf(
 			"%s\n\n%s\n\nChannel: %s\n\nVideo ID: %s\n\nDescription: %s\n\nDuration: %s\n\nThumbnail URL: %s\n\nURL: %s",
 			statusLine,
-			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00D9FF")).Render(m.selectedItem.Title),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9")).Italic(true).Render(m.selectedItem.ChannelTitle),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.VideoID),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(truncate(m.selectedItem.Description, 100)),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.Duration),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.ThumbnailURL),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render(m.selectedItem.URL),
+			lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorPrimary)).Render(m.selectedItem.Title),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSecondary)).Italic(true).Render(m.selectedItem.ChannelTitle),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Render(m.selectedItem.ID),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Render(truncate(m.selectedItem.Description, 100)),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Render(m.selectedItem.Duration),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Render(m.selectedItem.ThumbnailURL),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted)).Render(m.selectedItem.URL),
 		)
 	} else {
 		rightContent = statusLine + "\n\n" + emptyStateStyle.Render("No video selected")

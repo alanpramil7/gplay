@@ -11,6 +11,14 @@ import (
 	"github.com/hajimehoshi/oto/v2"
 )
 
+const (
+	defaultSampleRate = 48000
+	defaultChannels   = 2
+	defaultBufferSize = "64k"
+	defaultLogLevel   = "warning"
+)
+
+// AudioService handles audio playback operations
 type AudioService struct {
 	mu              sync.Mutex
 	context         *oto.Context
@@ -21,9 +29,9 @@ type AudioService struct {
 	cancelFunc      context.CancelFunc
 	cmd             *exec.Cmd
 	streamDone      chan bool
-	onComplete      func()    // Callback function called when song completes
-	manuallyStopped bool      // Track if song was manually stopped
-	songComplete    chan bool // Channel to signal song completion
+	onComplete      func()
+	manuallyStopped bool
+	songComplete    chan bool
 }
 
 func NewAudioService() *AudioService {
@@ -56,7 +64,7 @@ func (s *AudioService) PlayStream(url string) error {
 	s.manuallyStopped = false
 
 	if s.context == nil {
-		audioContext, ready, err := oto.NewContext(48000, 2, 2)
+		audioContext, ready, err := oto.NewContext(defaultSampleRate, defaultChannels, defaultChannels)
 		if err != nil {
 			return fmt.Errorf("failed to create audio context: %w", err)
 		}
@@ -64,7 +72,7 @@ func (s *AudioService) PlayStream(url string) error {
 		s.context = audioContext
 	}
 
-	streamUrl, err := s.GetStreamUrl(url)
+	streamURL, err := s.GetStreamURL(url)
 	if err != nil {
 		return fmt.Errorf("error getting stream url: %w", err)
 	}
@@ -77,13 +85,13 @@ func (s *AudioService) PlayStream(url string) error {
 		"-reconnect", "1",
 		"-reconnect_streamed", "1",
 		"-reconnect_delay_max", "5",
-		"-i", streamUrl,
+		"-i", streamURL,
 		"-f", "s16le",
-		"-ar", "48000",
-		"-ac", "2",
+		"-ar", fmt.Sprintf("%d", defaultSampleRate),
+		"-ac", fmt.Sprintf("%d", defaultChannels),
 		"-acodec", "pcm_s16le",
-		"-bufsize", "64k",
-		"-loglevel", "warning",
+		"-bufsize", defaultBufferSize,
+		"-loglevel", defaultLogLevel,
 		"pipe:1",
 	)
 
@@ -167,7 +175,8 @@ func (s *AudioService) monitorStream(songUrl string) {
 	}
 }
 
-func (s *AudioService) GetStreamUrl(url string) (string, error) {
+// GetStreamURL retrieves the direct stream URL for a YouTube video
+func (s *AudioService) GetStreamURL(url string) (string, error) {
 	// Use better format selection to avoid issues
 	cmd := exec.Command("yt-dlp",
 		"--get-url",
@@ -180,12 +189,12 @@ func (s *AudioService) GetStreamUrl(url string) (string, error) {
 		return "", fmt.Errorf("error getting stream url: %v", err)
 	}
 
-	streamUrl := strings.TrimSpace(string(output))
-	if streamUrl == "" {
+	streamURL := strings.TrimSpace(string(output))
+	if streamURL == "" {
 		return "", fmt.Errorf("empty stream URL returned from yt-dlp")
 	}
 
-	return streamUrl, nil
+	return streamURL, nil
 }
 
 func (s *AudioService) Stop() {
@@ -256,6 +265,7 @@ func (s *AudioService) IsPaused() bool {
 	return s.isPaused
 }
 
+// GetCurrentSong returns the URL of the currently loaded song
 func (s *AudioService) GetCurrentSong() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

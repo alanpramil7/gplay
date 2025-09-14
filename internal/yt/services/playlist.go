@@ -12,23 +12,23 @@ import (
 
 // PlaylistService interface for YouTube playlist operations
 type PlaylistService interface {
-	GetPlaylistItems(playlistID string, max int64) ([]yt.SearchResult, error)
+	GetPlaylistItems(playlistID string, maxResults int64) ([]yt.SearchResult, error)
 }
 
 type playlistService struct {
-	ytClient *yt.Client
+	client *yt.Client
 }
 
 // NewPlaylistService creates a new playlist service instance
-func NewPlaylistService(ytClient *yt.Client) PlaylistService {
+func NewPlaylistService(client *yt.Client) PlaylistService {
 	return &playlistService{
-		ytClient: ytClient,
+		client: client,
 	}
 }
 
 // GetPlaylistItems retrieves all videos (songs) from a playlist
-func (p *playlistService) GetPlaylistItems(playlistID string, max int64) ([]yt.SearchResult, error) {
-	service := p.ytClient.GetService()
+func (p *playlistService) GetPlaylistItems(playlistID string, maxResults int64) ([]yt.SearchResult, error) {
+	service := p.client.Service()
 
 	results := []yt.SearchResult{}
 	nextPageToken := ""
@@ -36,7 +36,7 @@ func (p *playlistService) GetPlaylistItems(playlistID string, max int64) ([]yt.S
 	for {
 		call := service.PlaylistItems.List([]string{"id", "snippet", "contentDetails"}).
 			PlaylistId(playlistID).
-			MaxResults(max).
+			MaxResults(maxResults).
 			PageToken(nextPageToken)
 
 		response, err := call.Do()
@@ -54,7 +54,7 @@ func (p *playlistService) GetPlaylistItems(playlistID string, max int64) ([]yt.S
 				publishedAt, _ := time.Parse(time.RFC3339, item.Snippet.PublishedAt)
 
 				result := yt.SearchResult{
-					VideoID:      item.ContentDetails.VideoId,
+					ID:           item.ContentDetails.VideoId,
 					Title:        item.Snippet.Title,
 					Description:  item.Snippet.Description,
 					ChannelTitle: item.Snippet.ChannelTitle,
@@ -74,7 +74,7 @@ func (p *playlistService) GetPlaylistItems(playlistID string, max int64) ([]yt.S
 				log.Printf("Warning: failed to get video details: %v", err)
 			} else {
 				for i, result := range results {
-					if detail, exists := details[result.VideoID]; exists {
+					if detail, exists := details[result.ID]; exists {
 						results[i].Duration = detail.Duration
 						results[i].ViewCount = detail.ViewCount
 						results[i].LikeCount = detail.LikeCount

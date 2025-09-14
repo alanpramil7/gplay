@@ -2,9 +2,9 @@ package yt
 
 import "time"
 
-// SearchResult represents a single search result from YouTube
-type SearchResult struct {
-	VideoID      string    `json:"video_id"`
+// Video represents a single video from YouTube
+type Video struct {
+	ID           string    `json:"id"`
 	Title        string    `json:"title"`
 	Description  string    `json:"description"`
 	ChannelTitle string    `json:"channel_title"`
@@ -19,10 +19,10 @@ type SearchResult struct {
 
 // SearchResponse represents the complete search response
 type SearchResponse struct {
-	Results       []SearchResult `json:"results"`
-	TotalResults  int64          `json:"total_results"`
-	Query         string         `json:"query"`
-	NextPageToken string         `json:"next_page_token,omitempty"`
+	Videos        []Video `json:"videos"`
+	TotalResults  int64   `json:"total_results"`
+	Query         string  `json:"query"`
+	NextPageToken string  `json:"next_page_token,omitempty"`
 }
 
 // SearchConfig holds configuration for search operations
@@ -33,3 +33,6 @@ type SearchConfig struct {
 	VideoDuration string `json:"video_duration"` // any, short, medium, long
 	VideoType     string `json:"video_type"`     // any, episode, movie
 }
+
+// SearchResult is an alias for Video for backward compatibility
+type SearchResult = Video

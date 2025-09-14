@@ -10,6 +10,13 @@ import (
 	"google.golang.org/api/youtube/v3"
 )
 
+const (
+	defaultOrder         = "relevance"
+	defaultSafeSearch    = "moderate"
+	defaultVideoDuration = "any"
+	defaultVideoType     = "any"
+)
+
 // SearchService interface for YouTube search operations
 type SearchService interface {
 	Search(query string) (*yt.SearchResponse, error)
@@ -17,22 +24,22 @@ type SearchService interface {
 }
 
 type searchService struct {
-	ytClient *yt.Client
-	config   *yt.SearchConfig
+	client *yt.Client
+	config *yt.SearchConfig
 }
 
 // NewSearchService creates a new search service instance
-func NewSearchService(ytClient *yt.Client, max int64) SearchService {
+func NewSearchService(client *yt.Client, maxResults int64) SearchService {
 	config := &yt.SearchConfig{
-		MaxResults:    max,
-		Order:         "relevance",
-		SafeSearch:    "moderate",
-		VideoDuration: "any",
-		VideoType:     "any",
+		MaxResults:    maxResults,
+		Order:         defaultOrder,
+		SafeSearch:    defaultSafeSearch,
+		VideoDuration: defaultVideoDuration,
+		VideoType:     defaultVideoType,
 	}
 	return &searchService{
-		ytClient: ytClient,
-		config:   config,
+		client: client,
+		config: config,
 	}
 }
 
@@ -43,7 +50,7 @@ func (s *searchService) Search(query string) (*yt.SearchResponse, error) {
 
 // SearchWithConfig performs a YouTube search with custom configuration
 func (s *searchService) SearchWithConfig(query string, config *yt.SearchConfig) (*yt.SearchResponse, error) {
-	service := s.ytClient.GetService()
+	service := s.client.Service()
 
 	// Build the search call
 	call := service.Search.List([]string{"id", "snippet"}).
@@ -73,7 +80,7 @@ func (s *searchService) SearchWithConfig(query string, config *yt.SearchConfig) 
 			publishedAt, _ := time.Parse(time.RFC3339, item.Snippet.PublishedAt)
 
 			result := yt.SearchResult{
-				VideoID:      item.Id.VideoId,
+				ID:           item.Id.VideoId,
 				Title:        item.Snippet.Title,
 				Description:  item.Snippet.Description,
 				ChannelTitle: item.Snippet.ChannelTitle,
@@ -94,7 +101,7 @@ func (s *searchService) SearchWithConfig(query string, config *yt.SearchConfig) 
 		} else {
 			// Merge details with basic info
 			for i, result := range results {
-				if detail, exists := details[result.VideoID]; exists {
+				if detail, exists := details[result.ID]; exists {
 					results[i].Duration = detail.Duration
 					results[i].ViewCount = detail.ViewCount
 					results[i].LikeCount = detail.LikeCount
@@ -104,7 +111,7 @@ func (s *searchService) SearchWithConfig(query string, config *yt.SearchConfig) 
 	}
 
 	return &yt.SearchResponse{
-		Results:       results,
+		Videos:        results,
 		TotalResults:  response.PageInfo.TotalResults,
 		Query:         query,
 		NextPageToken: response.NextPageToken,
@@ -113,9 +120,9 @@ func (s *searchService) SearchWithConfig(query string, config *yt.SearchConfig) 
 
 // VideoDetails holds additional video information
 type VideoDetails struct {
-	Duration  string
-	ViewCount uint64
-	LikeCount uint64
+	Duration  string `json:"duration"`
+	ViewCount uint64 `json:"view_count"`
+	LikeCount uint64 `json:"like_count"`
 }
 
 // getVideoDetails retrieves detailed information for a list of video IDs
