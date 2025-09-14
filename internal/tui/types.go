@@ -37,6 +37,7 @@ type AppModel struct {
 type searchStartMsg string
 type searchCompleteMsg *yt.SearchResponse
 type searchErrorMsg error
+type songCompleteMsg struct{}
 
 // ListItem implements list.Item for search results
 type ListItem struct {

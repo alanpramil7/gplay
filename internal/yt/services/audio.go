@@ -12,21 +12,37 @@ import (
 )
 
 type AudioService struct {
-	mu          sync.Mutex
-	context     *oto.Context
-	player      oto.Player
-	isPlaying   bool
-	isPaused    bool
-	currentSong string
-	cancelFunc  context.CancelFunc
-	cmd         *exec.Cmd
-	streamDone  chan bool
+	mu              sync.Mutex
+	context         *oto.Context
+	player          oto.Player
+	isPlaying       bool
+	isPaused        bool
+	currentSong     string
+	cancelFunc      context.CancelFunc
+	cmd             *exec.Cmd
+	streamDone      chan bool
+	onComplete      func()    // Callback function called when song completes
+	manuallyStopped bool      // Track if song was manually stopped
+	songComplete    chan bool // Channel to signal song completion
 }
 
 func NewAudioService() *AudioService {
 	return &AudioService{
-		streamDone: make(chan bool, 1),
+		streamDone:   make(chan bool, 1),
+		songComplete: make(chan bool, 1),
 	}
+}
+
+// SetOnComplete sets the callback function to be called when a song completes
+func (s *AudioService) SetOnComplete(callback func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onComplete = callback
+}
+
+// GetSongCompleteChannel returns the channel that signals when a song completes
+func (s *AudioService) GetSongCompleteChannel() <-chan bool {
+	return s.songComplete
 }
 
 func (s *AudioService) PlayStream(url string) error {
@@ -35,6 +51,9 @@ func (s *AudioService) PlayStream(url string) error {
 
 	// stop any previous playback first
 	s.stopInternal()
+
+	// Reset manually stopped flag for new song
+	s.manuallyStopped = false
 
 	if s.context == nil {
 		audioContext, ready, err := oto.NewContext(48000, 2, 2)
@@ -131,6 +150,14 @@ func (s *AudioService) monitorStream(songUrl string) {
 		s.isPlaying = false
 		s.isPaused = false
 		s.currentSong = ""
+
+		// Signal song completion if it finished naturally (not manually stopped)
+		if !s.manuallyStopped {
+			select {
+			case s.songComplete <- true:
+			default:
+			}
+		}
 	}
 
 	// Signal that stream is done
@@ -188,6 +215,8 @@ func (s *AudioService) Play() {
 }
 
 func (s *AudioService) stopInternal() {
+	s.manuallyStopped = true
+
 	// Cancel the context first to stop FFmpeg gracefully
 	if s.cancelFunc != nil {
 		s.cancelFunc()

@@ -79,14 +79,14 @@ func NewApp() *AppModel {
 	audioService := services.NewAudioService()
 	playlistService := services.NewPlaylistService(client)
 
-	initialResults, err:= playlistService.GetPlaylistItems("PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp", 100)
+	initialResults, err := playlistService.GetPlaylistItems("PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp", 100)
 	if err != nil {
 		log.Fatalf("Error getting inital results from playlist: %v", err)
 	}
 
 	// Get initial songs from the playlist PLdavpelzZMWVhADtPAMJWzGrT0OKVpDAp
 
-	return &AppModel{
+	app := &AppModel{
 		state:         StateNormal,
 		client:        client,
 		searchInput:   ti,
@@ -95,13 +95,31 @@ func NewApp() *AppModel {
 		selected:      0,
 		isLoadingSong: false,
 
-		AudioService: audioService,
+		AudioService:    audioService,
 		PlaylistService: &playlistService,
 	}
+
+	// Set up the completion callback (not used anymore, but keeping for compatibility)
+	audioService.SetOnComplete(func() {
+		// This will be called when a song completes naturally
+		// We'll handle this in the Update method
+	})
+
+	return app
 }
 
 func (m *AppModel) Init() tea.Cmd {
-	return nil
+	return m.listenForSongCompletion()
+}
+
+// listenForSongCompletion returns a command that listens for song completion
+func (m *AppModel) listenForSongCompletion() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case <-m.AudioService.GetSongCompleteChannel():
+			return songCompleteMsg{}
+		}
+	}
 }
 
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -139,10 +157,24 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case songLoadCompleteMsg:
 		m.isLoadingSong = false
+		// Continue listening for song completion
+		return m, m.listenForSongCompletion()
 
 	case songLoadErrorMsg:
 		m.isLoadingSong = false
 		m.err = msg.error
+
+	case songCompleteMsg:
+		// Song completed naturally, play next song
+		if m.selected < len(m.searchResults)-1 {
+			m.selected++
+			m.selectedItem = &m.searchResults[m.selected]
+			m.updateResultsViewport()
+			m.isLoadingSong = true
+			return m, m.playSelectedSong()
+		}
+		// No more songs, continue listening for completion
+		return m, m.listenForSongCompletion()
 
 	default:
 		var cmd tea.Cmd
