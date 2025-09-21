@@ -85,7 +85,7 @@ var (
 func NewApp() *AppModel {
 	// Initialize text input
 	searchInput := textinput.New()
-	searchInput.Placeholder = "Enter search query..."
+	searchInput.Placeholder = "Enter the song name..."
 	searchInput.Focus()
 	searchInput.CharLimit = searchCharLimit
 	searchInput.Width = searchWidth
@@ -118,11 +118,12 @@ func NewApp() *AppModel {
 		searchInput:   searchInput,
 		results:       resultsViewport,
 		searchResults: initialResults,
+		searchMode:    SearchModeQuery,
 		selected:      0,
 		isLoadingSong: false,
 
 		AudioService:    audioService,
-		PlaylistService: &playlistService,
+		PlaylistService: playlistService,
 	}
 
 	// Set up completion callback (kept for compatibility)
@@ -171,7 +172,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case searchCompleteMsg:
 		m.state = StateNormal
-		m.searchResults = msg.Videos
+		m.searchResults = msg
 		m.selected = 0
 		m.updateResultsViewport()
 
@@ -214,7 +215,7 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Stop audio before quitting
 		m.AudioService.Stop()
 		return m, tea.Quit
-	case "/", "s":
+	case "/":
 		m.state = StateSearchInput
 		m.searchInput.SetValue("")
 		m.searchInput.Focus()
@@ -229,6 +230,8 @@ func (m *AppModel) handleNormalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selected++
 			m.updateResultsViewport()
 		}
+	case "s":
+		// Suffle playlist
 	case "enter":
 		if len(m.searchResults) > 0 && m.selected >= 0 && m.selected < len(m.searchResults) {
 			m.selectedItem = &m.searchResults[m.selected]
@@ -263,6 +266,16 @@ func (m *AppModel) handleSearchInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
+	case "tab":
+		switch m.searchMode {
+		case SearchModeQuery:
+			m.searchMode = SearchModePlaylist
+			m.searchInput.Placeholder = "Enter the Playlidt ID..."
+		case SearchModePlaylist:
+			m.searchMode = SearchModeQuery
+			m.searchInput.Placeholder = "Enter the song name..."
+		}
+		return m, nil
 	case "esc":
 		m.state = StateNormal
 		m.searchInput.Blur()
@@ -313,12 +326,23 @@ func (m *AppModel) playSelectedSong() tea.Cmd {
 
 func (m *AppModel) performSearch(query string) tea.Cmd {
 	return func() tea.Msg {
-		service := services.NewSearchService(m.client, 10)
-		results, err := service.Search(query)
-		if err != nil {
-			return searchErrorMsg(fmt.Errorf("search failed: %w", err))
+		switch m.searchMode {
+		case SearchModeQuery:
+
+			service := services.NewSearchService(m.client, 10)
+			response, err := service.Search(query)
+			if err != nil {
+				return searchErrorMsg(fmt.Errorf("search failed: %w", err))
+			}
+			return searchCompleteMsg(response.Videos)
+		case SearchModePlaylist:
+			results, err := m.PlaylistService.GetPlaylistItems(query, defaultMaxResults)
+			if err != nil {
+				return searchErrorMsg(fmt.Errorf("search failed: %w", err))
+			}
+			return searchCompleteMsg(results)
 		}
-		return searchCompleteMsg(results)
+		return searchErrorMsg(fmt.Errorf("Invalid search mode."))
 	}
 }
 
@@ -459,12 +483,19 @@ func (m *AppModel) View() string {
 	help := helpStyle.Render(helpText)
 
 	if m.state == StateSearchInput {
-		title := modalTitleStyle.Render("Search YouTube")
+		modeLabel := ""
+		if m.searchMode == SearchModeQuery {
+			modeLabel = "[ Search Mode: Query ]"
+		} else {
+			modeLabel = "[ Search Mode: Playlist ]"
+		}
+
+		title := modalTitleStyle.Render("Search YouTube " + modeLabel)
 		input := m.searchInput.View()
 		helperText := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#626262")).
 			Italic(true).
-			Render("↵ Enter to search  •  ESC to cancel")
+			Render("↵ Enter to search  •  ESC to cancel  •  TAB to toggle mode")
 
 		modalContent := fmt.Sprintf("%s\n\n%s\n\n%s", title, input, helperText)
 		modal := modalStyle.Render(modalContent)

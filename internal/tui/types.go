@@ -23,6 +23,7 @@ type Model struct {
 	searchInput   textinput.Model
 	results       viewport.Model
 	searchResults []yt.SearchResult
+	searchMode    SearchMode
 	selected      int
 	selectedItem  *yt.SearchResult
 	isLoadingSong bool
@@ -30,23 +31,22 @@ type Model struct {
 	err           error
 
 	AudioService    *services.AudioService
-	PlaylistService *services.PlaylistService
+	PlaylistService services.PlaylistService
 }
 
 // Custom messages for async operations
 type searchStartMsg string
-type searchCompleteMsg *yt.SearchResponse
+type searchCompleteMsg []yt.SearchResult
 type searchErrorMsg error
 type songCompleteMsg struct{}
 
-// ListItem implements list.Item for search results
-type ListItem struct {
-	result yt.SearchResult
-}
-
-func (i ListItem) Title() string       { return i.result.Title }
-func (i ListItem) Description() string { return i.result.ChannelTitle }
-func (i ListItem) FilterValue() string { return i.result.Title }
-
 // AppModel is an alias for Model for backward compatibility
 type AppModel = Model
+
+// Search mode for playlist or song
+type SearchMode int
+
+const (
+	SearchModeQuery SearchMode = iota
+	SearchModePlaylist
+)
